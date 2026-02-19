@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>주제 의견</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header header-topic">
+            <h1 id="topicTitle" class="topic-page-title">주제</h1>
+            <a href="#" id="btnClose" class="btn-close-page">닫기</a>
+        </header>
+
+        <main class="main topic-main">
+            <form id="opinionForm" class="opinion-form">
+                <input type="text" name="author" placeholder="닉네임 (선택)" maxlength="20">
+                <textarea name="opinion" placeholder="의견을 입력하세요" rows="3" maxlength="300" required></textarea>
+                <button type="submit" class="btn-submit-opinion">의견 등록</button>
+            </form>
+
+            <div class="opinion-section">
+                <h3>의견 목록</h3>
+                <ul class="opinion-list" id="opinionList"></ul>
+            </div>
+        </main>
+    </div>
+
+    <script src="topic.js"></script>
+</body>
+</html>

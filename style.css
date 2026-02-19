@@ -114,7 +114,7 @@ body {
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.1s;
+  transition: opacity 0.2s, transform: 0.1s;
 }
 
 .btn-add-topic:hover,
@@ -250,7 +250,7 @@ body {
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.1s;
+  transition: opacity 0.2s, transform: 0.1s;
 }
 
 .btn-submit-opinion:hover,

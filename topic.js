@@ -1,12 +1,21 @@
 /**
  * 주제별 의견 앱 - 주제 상세 페이지 (새 창)
- * 의견 작성, 본인 의견만 삭제 가능 (삭제 코드로 확인)
+ * Firebase Realtime Database를 사용하여 의견 추가/삭제
  */
-(function () {
-  var STORAGE_KEY = "topic-opinion-chapter4";
+import { db } from "./firebase-config.js";
+import {
+  ref,
+  onValue,
+  push,
+  remove,
+} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
 
+const TOPICS_PATH = "chapter4/topics";
+var STORAGE_KEY_MINE = "topic-opinion-mine-chapter4";
+
+(function () {
   var topicId = getTopicIdFromUrl();
-  var topic = loadTopic();
+  var topic = null;
 
   var topicTitleEl = document.getElementById("topicTitle");
   var btnClose = document.getElementById("btnClose");
@@ -18,42 +27,48 @@
     return params.get("id") || "";
   }
 
-  function loadAllData() {
+  function getMyOpinionIds() {
     try {
-      var raw = localStorage.getItem(STORAGE_KEY);
+      var raw = localStorage.getItem(STORAGE_KEY_MINE);
       if (raw) {
         var data = JSON.parse(raw);
-        if (data && data.topics && Array.isArray(data.topics)) {
-          return data.topics;
+        if (data && data[topicId] && Array.isArray(data[topicId])) {
+          return data[topicId];
         }
       }
-    } catch (e) {
-      console.warn("데이터 로드 실패:", e);
-    }
+    } catch (e) {}
     return [];
   }
 
-  function loadTopic() {
-    return loadAllData().find(function (t) {
-      return t.id === topicId;
-    });
-  }
-
-  function saveTopics(topicsData) {
+  function addMyOpinionId(opinionId) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ topics: topicsData }));
-    } catch (e) {
-      console.warn("데이터 저장 실패:", e);
-    }
+      var data = {};
+      var raw = localStorage.getItem(STORAGE_KEY_MINE);
+      if (raw) {
+        try {
+          data = JSON.parse(raw) || {};
+        } catch (e) {}
+      }
+      if (!data[topicId]) data[topicId] = [];
+      if (data[topicId].indexOf(opinionId) === -1) {
+        data[topicId].push(opinionId);
+        localStorage.setItem(STORAGE_KEY_MINE, JSON.stringify(data));
+      }
+    } catch (e) {}
   }
 
-  function generateDeleteCode() {
-    var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    var code = "";
-    for (var i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
+  function removeMyOpinionId(opinionId) {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY_MINE);
+      if (!raw) return;
+      var data = JSON.parse(raw);
+      if (!data || !data[topicId]) return;
+      data[topicId] = data[topicId].filter(function (id) {
+        return id !== opinionId;
+      });
+      if (data[topicId].length === 0) delete data[topicId];
+      localStorage.setItem(STORAGE_KEY_MINE, JSON.stringify(data));
+    } catch (e) {}
   }
 
   function escapeHtml(text) {
@@ -63,23 +78,46 @@
     return div.innerHTML;
   }
 
-  function renderOpinionList() {
-    if (!opinionList || !topic) return;
+  // opinions 객체를 배열로 변환 (정렬: 최신순)
+  function opinionsToArray(opinionsObj) {
+    if (!opinionsObj || typeof opinionsObj !== "object") return [];
+    return Object.keys(opinionsObj)
+      .map(function (key) {
+        var o = opinionsObj[key];
+        return {
+          id: key,
+          author: o.author || null,
+          text: o.text || "",
+          createdAt: o.createdAt || 0,
+        };
+      })
+      .sort(function (a, b) {
+        return (a.createdAt || 0) - (b.createdAt || 0);
+      });
+  }
 
-    var opinions = topic.opinions || [];
+  function renderOpinionList(opinionsArr, myOpinionIds) {
+    if (!opinionList) return;
+    var mineSet = {};
+    (myOpinionIds || []).forEach(function (id) {
+      mineSet[id] = true;
+    });
 
-    if (opinions.length === 0) {
-      opinionList.innerHTML = '<li class="opinion-empty">아직 의견이 없어요. 첫 번째 의견을 남겨보세요!</li>';
+    if (!opinionsArr || opinionsArr.length === 0) {
+      opinionList.innerHTML =
+        '<li class="opinion-empty">아직 의견이 없어요. 첫 번째 의견을 남겨보세요!</li>';
       return;
     }
 
-    opinionList.innerHTML = opinions
-      .map(function (o, idx) {
+    opinionList.innerHTML = opinionsArr
+      .map(function (o) {
         var authorClass = o.author ? "" : " anonymous";
         var authorDisplay = o.author || "익명";
-        var canDelete = !!o.deleteCode;
+        var canDelete = !!mineSet[o.id];
         var deleteBtn = canDelete
-          ? '<button type="button" class="btn-delete-opinion" data-idx="' + idx + '" aria-label="의견 삭제">×</button>'
+          ? '<button type="button" class="btn-delete-opinion" data-id="' +
+            escapeHtml(o.id) +
+            '" aria-label="의견 삭제">×</button>'
           : "";
         return (
           '<li class="opinion-item">' +
@@ -103,38 +141,31 @@
 
     opinionList.querySelectorAll(".btn-delete-opinion").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        var idx = parseInt(btn.dataset.idx, 10);
-        var opinion = topic.opinions[idx];
-        if (!opinion) return;
+        var opinionId = btn.dataset.id;
+        if (!opinionId) return;
+        if (!confirm("이 의견을 삭제할까요?")) return;
 
-        var input = prompt("삭제하려면 작성 시 안내된 삭제 코드를 입력하세요.");
-        if (input === null) return;
-
-        if (opinion.deleteCode && input.trim().toUpperCase() === opinion.deleteCode.toUpperCase()) {
-          topic.opinions.splice(idx, 1);
-          var topicsData = loadAllData();
-          var t = topicsData.find(function (x) {
-            return x.id === topicId;
+        var opinionRef = ref(
+          db,
+          TOPICS_PATH + "/" + topicId + "/opinions/" + opinionId
+        );
+        remove(opinionRef)
+          .then(function () {
+            removeMyOpinionId(opinionId);
+          })
+          .catch(function (err) {
+            alert("삭제에 실패했습니다: " + (err.message || err));
           });
-          if (t) {
-            t.opinions = topic.opinions;
-            saveTopics(topicsData);
-          }
-          renderOpinionList();
-        } else {
-          alert("삭제 코드가 일치하지 않습니다.");
-        }
       });
     });
   }
 
   function init() {
-    if (!topicId || !topic) {
-      document.body.innerHTML = "<p style='padding:20px;text-align:center;'>주제를 찾을 수 없습니다.</p>";
+    if (!topicId) {
+      document.body.innerHTML =
+        "<p style='padding:20px;text-align:center;'>주제를 찾을 수 없습니다.</p>";
       return;
     }
-
-    if (topicTitleEl) topicTitleEl.textContent = topic.title;
 
     if (btnClose) {
       btnClose.addEventListener("click", function (e) {
@@ -146,41 +177,53 @@
       });
     }
 
+    // Firebase에서 주제 실시간 구독
+    var topicRef = ref(db, TOPICS_PATH + "/" + topicId);
+    onValue(topicRef, function (snapshot) {
+      topic = snapshot.val();
+      if (!topic) {
+        document.body.innerHTML =
+          "<p style='padding:20px;text-align:center;'>주제를 찾을 수 없습니다.</p>";
+        return;
+      }
+
+      if (topicTitleEl) topicTitleEl.textContent = topic.title || "주제";
+
+      var opinionsArr = opinionsToArray(topic.opinions);
+      var myOpinionIds = getMyOpinionIds();
+      renderOpinionList(opinionsArr, myOpinionIds);
+    });
+
     opinionForm.addEventListener("submit", function (e) {
       e.preventDefault();
 
       var authorInput = opinionForm.querySelector('input[name="author"]');
       var opinionInput = opinionForm.querySelector('textarea[name="opinion"]');
-      var text = opinionInput && opinionInput.value ? opinionInput.value.trim() : "";
+      var text =
+        opinionInput && opinionInput.value ? opinionInput.value.trim() : "";
       if (!text) return;
 
-      var deleteCode = generateDeleteCode();
-
-      if (!topic.opinions) topic.opinions = [];
-      topic.opinions.push({
-        author: authorInput && authorInput.value ? authorInput.value.trim() || null : null,
+      var newOpinion = {
+        author:
+          authorInput && authorInput.value
+            ? authorInput.value.trim() || null
+            : null,
         text: text,
-        deleteCode: deleteCode,
-        createdAt: Date.now()
-      });
+        createdAt: Date.now(),
+      };
 
-      var topicsData = loadAllData();
-      var t = topicsData.find(function (x) {
-        return x.id === topicId;
-      });
-      if (t) {
-        t.opinions = topic.opinions;
-        saveTopics(topicsData);
-      }
-
-      if (opinionInput) opinionInput.value = "";
-
-      renderOpinionList();
-
-      alert("의견이 등록되었습니다.\n\n삭제하려면 아래 코드를 기억해두세요.\n삭제 코드: " + deleteCode);
+      var opinionsRef = ref(db, TOPICS_PATH + "/" + topicId + "/opinions");
+      push(opinionsRef, newOpinion)
+        .then(function (snapRef) {
+          var opinionId = snapRef.key;
+          addMyOpinionId(opinionId);
+          if (opinionInput) opinionInput.value = "";
+          alert("의견이 등록되었습니다.");
+        })
+        .catch(function (err) {
+          alert("의견 등록에 실패했습니다: " + (err.message || err));
+        });
     });
-
-    renderOpinionList();
   }
 
   init();
